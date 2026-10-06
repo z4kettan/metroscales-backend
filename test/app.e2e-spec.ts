@@ -102,6 +102,10 @@ describe('Metro Scales API (e2e)', () => {
 
     const other = await http.get(`/api/items/${itemId}?branchId=${otherBranchId}`).set(auth(owner)).expect(200);
     expect(other.body.data.price).toBe(30);
+
+    // A new item is queued for the scales straight away
+    const history = await http.get(`/api/scales/${scaleId}/commands`).set(auth(owner)).expect(200);
+    expect(history.body.data.map((c: any) => c.type)).toContain('PUSH_ITEMS');
   });
 
   it('rejects a duplicate PLU', async () => {

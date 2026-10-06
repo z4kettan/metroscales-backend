@@ -35,6 +35,12 @@ export class ScaleCommandsService {
     return this.queue(scales.map((s) => s.id), type, payload, requestedBy);
   }
 
+  /// Queues work for every scale a customer owns, in all branches.
+  async queueForCustomer(customerId: string, type: ScaleCommandType, payload?: Prisma.InputJsonValue, requestedBy?: string) {
+    const scales = await this.prisma.scale.findMany({ where: { customerId, branchId: { not: null } }, select: { id: true } });
+    return this.queue(scales.map((s) => s.id), type, payload, requestedBy);
+  }
+
   list(scaleId: string, take = 50) {
     return this.prisma.scaleCommand.findMany({ where: { scaleId }, orderBy: { createdAt: 'desc' }, take });
   }

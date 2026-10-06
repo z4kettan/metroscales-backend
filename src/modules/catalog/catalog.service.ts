@@ -1,11 +1,20 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, ScaleCommandType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ScaleCommandsService } from '../scales/scale-commands.service';
 import { CreateCategoryDto, CreateItemDto, ListItemsQuery, MAX_PLU, UpdateCategoryDto, UpdateItemDto } from './dto/catalog.dto';
 
 @Injectable()
 export class CatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly commands: ScaleCommandsService,
+  ) {}
+
+  /// Item changes reach the scales with the next full item push.
+  private pushToScales(customerId: string) {
+    return this.commands.queueForCustomer(customerId, ScaleCommandType.PUSH_ITEMS);
+  }
 
   // ---- categories ----
 
@@ -122,6 +131,7 @@ export class CatalogService {
       }
       return created;
     });
+    await this.pushToScales(customerId);
     return this.getItem(customerId, item.id, dto.branchId);
   }
 
@@ -142,17 +152,21 @@ export class CatalogService {
         defaultPrice: dto.defaultPrice,
       },
     });
+    await this.pushToScales(customerId);
     return this.getItem(customerId, id);
   }
 
   async deleteItem(customerId: string, id: string) {
     await this.getItem(customerId, id);
     await this.prisma.item.delete({ where: { id } });
+    await this.pushToScales(customerId);
     return { deleted: true };
   }
 
   async deleteAllItems(customerId: string) {
     const { count } = await this.prisma.item.deleteMany({ where: { customerId } });
+    // Nothing left to push, so wipe the scales' item memory instead
+    await this.commands.queueForCustomer(customerId, ScaleCommandType.CLEAR_PLU);
     return { deleted: count };
   }
 
