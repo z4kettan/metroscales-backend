@@ -1,0 +1,362 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// DEALER_ADMIN: the scale dealer. Manages every customer and registers scales.
+// OWNER: a shop owner (the dealer's customer). Sees all of their branches.
+// STAFF: a user added by an owner. Sees only the branches assigned to them.
+enum Role {
+  DEALER_ADMIN
+  OWNER
+  STAFF
+}
+
+enum PriceUnit {
+  KG
+  PACK
+}
+
+enum GstMode {
+  INCLUDED
+  EXCLUDED
+}
+
+enum StockMovementType {
+  PURCHASE
+  ADJUSTMENT
+  SALE
+  CLEAR
+}
+
+enum ScaleCommandType {
+  PUSH_ITEMS
+  PULL_ITEMS
+  CLEAR_PLU
+  SET_PARAMETERS
+  SET_WIFI
+  SET_PRINT_FORMAT
+  SET_SHORTCUTS
+  SET_BILL_SETTINGS
+}
+
+enum ScaleCommandStatus {
+  PENDING
+  SENT
+  DONE
+  FAILED
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  // Dealer admins log in with a password, shop users with a numeric PIN.
+  // Both are stored as a bcrypt hash here.
+  secretHash   String
+  role         Role
+  customerId   String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  customer      Customer?      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  branches      UserBranch[]
+  refreshTokens RefreshToken[]
+
+  @@index([customerId])
+}
+
+model UserBranch {
+  userId   String
+  branchId String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@id([userId, branchId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Customer {
+  id                 String    @id @default(uuid())
+  name               String
+  contactName        String?
+  phone              String?
+  email              String?
+  address            String?
+  notes              String?
+  isActive           Boolean   @default(true)
+  subscriptionEndsAt DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  users      User[]
+  branches   Branch[]
+  categories Category[]
+  items      Item[]
+  scales     Scale[]
+}
+
+model Branch {
+  id         String   @id @default(uuid())
+  customerId String
+  name       String
+  address    String?
+  phone      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  users        UserBranch[]
+  scales       Scale[]
+  branchItems  BranchItem[]
+  movements    StockMovement[]
+  purchases    Purchase[]
+  bills        Bill[]
+  billSettings BillSettings?
+
+  @@index([customerId])
+}
+
+model Scale {
+  id          String    @id @default(uuid())
+  // 12 upper-case hex digits without separators, e.g. 0023F01A9740
+  mac         String    @unique
+  name        String
+  // Scale number inside the branch, shown as "Y201(1)"
+  number      Int       @default(1)
+  model       String?
+  customerId  String?
+  branchId    String?
+  storeName   String?
+  wifiSsid    String?
+  firmware    String?
+  lastSeenAt  DateTime?
+  lastIp      String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  customer    Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  branch      Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  printFormat ScalePrintFormat?
+  shortcuts   ScaleShortcut[]
+  commands    ScaleCommand[]
+  bills       Bill[]
+
+  @@index([customerId])
+  @@index([branchId])
+}
+
+model ScalePrintFormat {
+  scaleId  String   @id
+  format1  String?
+  format2  String?
+  // Up to 8 footer lines ("Postil 1..8" in the old app)
+  postils  String[]
+  updatedAt DateTime @updatedAt
+
+  scale Scale @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+}
+
+model ScaleShortcut {
+  id      String @id @default(uuid())
+  scaleId String
+  keyNo   Int
+  // 1 = primary layer, 2 = shifted layer
+  layer   Int    @default(1)
+  itemId  String
+
+  scale Scale @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+  item  Item  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([scaleId, keyNo, layer])
+}
+
+// Work queued for a scale. The scale gateway (built once the scale protocol is
+// known) delivers PENDING commands when the scale connects and reports back.
+model ScaleCommand {
+  id          String             @id @default(uuid())
+  scaleId     String
+  type        ScaleCommandType
+  payload     Json?
+  status      ScaleCommandStatus @default(PENDING)
+  error       String?
+  requestedBy String?
+  createdAt   DateTime           @default(now())
+  sentAt      DateTime?
+  completedAt DateTime?
+
+  scale Scale @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+
+  @@index([scaleId, status])
+}
+
+model Category {
+  id         String   @id @default(uuid())
+  customerId String
+  // Numeric id the scale uses for the category
+  code       Int
+  name       String
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  items    Item[]
+
+  @@unique([customerId, code])
+}
+
+// Items are shared by all branches of a customer; price and stock live on
+// BranchItem because they differ per branch.
+model Item {
+  id           String    @id @default(uuid())
+  customerId   String
+  plu          Int
+  name         String
+  barcode      String?
+  tareGrams    Int       @default(0)
+  unit         PriceUnit @default(KG)
+  gstPercent   Decimal   @default(0) @db.Decimal(5, 2)
+  gstMode      GstMode   @default(INCLUDED)
+  categoryId   String?
+  defaultPrice Decimal   @default(0) @db.Decimal(12, 2)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  customer    Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  category    Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  branchItems BranchItem[]
+  movements   StockMovement[]
+  shortcuts   ScaleShortcut[]
+  purchaseLines PurchaseLine[]
+  billLines   BillLine[]
+
+  @@unique([customerId, plu])
+  @@index([customerId, name])
+}
+
+model BranchItem {
+  branchId  String
+  itemId    String
+  price     Decimal  @db.Decimal(12, 2)
+  stock     Decimal  @default(0) @db.Decimal(14, 3)
+  updatedAt DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([branchId, itemId])
+}
+
+model StockMovement {
+  id        String            @id @default(uuid())
+  branchId  String
+  itemId    String
+  type      StockMovementType
+  quantity  Decimal           @db.Decimal(14, 3)
+  // Stock after this movement, for an easy audit trail
+  balance   Decimal           @db.Decimal(14, 3)
+  refId     String?
+  note      String?
+  userId    String?
+  createdAt DateTime          @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, itemId, createdAt])
+}
+
+model Purchase {
+  id          String   @id @default(uuid())
+  branchId    String
+  purchasedAt DateTime @default(now())
+  supplier    String?
+  invoiceNo   String?
+  note        String?
+  total       Decimal  @default(0) @db.Decimal(12, 2)
+  userId      String?
+  createdAt   DateTime @default(now())
+
+  branch Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  lines  PurchaseLine[]
+
+  @@index([branchId, purchasedAt])
+}
+
+model PurchaseLine {
+  id         String  @id @default(uuid())
+  purchaseId String
+  itemId     String
+  quantity   Decimal @db.Decimal(14, 3)
+  unitCost   Decimal @default(0) @db.Decimal(12, 2)
+  amount     Decimal @default(0) @db.Decimal(12, 2)
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  item     Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+}
+
+model BillSettings {
+  branchId   String   @id
+  header     String?
+  billFooter String?
+  itemFooter String?
+  offerTitle String?
+  updatedAt  DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+}
+
+// A sale made on a scale and uploaded to the cloud.
+model Bill {
+  id        String   @id @default(uuid())
+  branchId  String
+  scaleId   String?
+  billNo    String
+  billedAt  DateTime
+  subtotal  Decimal  @default(0) @db.Decimal(12, 2)
+  discount  Decimal  @default(0) @db.Decimal(12, 2)
+  tax       Decimal  @default(0) @db.Decimal(12, 2)
+  total     Decimal  @default(0) @db.Decimal(12, 2)
+  // Original message from the scale, kept for debugging the protocol
+  raw       Json?
+  createdAt DateTime @default(now())
+
+  branch Branch     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  scale  Scale?     @relation(fields: [scaleId], references: [id], onDelete: SetNull)
+  lines  BillLine[]
+
+  @@unique([scaleId, billNo, billedAt])
+  @@index([branchId, billedAt])
+}
+
+model BillLine {
+  id       String    @id @default(uuid())
+  billId   String
+  itemId   String?
+  plu      Int
+  name     String
+  unit     PriceUnit @default(KG)
+  quantity Decimal   @db.Decimal(14, 3)
+  price    Decimal   @db.Decimal(12, 2)
+  amount   Decimal   @db.Decimal(12, 2)
+
+  bill Bill  @relation(fields: [billId], references: [id], onDelete: Cascade)
+  item Item? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+}

@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: metroscales-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && npx prisma generate && npm run build
+    # nest build emits to dist/ with src/ as the root, so the entrypoint is dist/main.js
+    startCommand: npx prisma migrate deploy && node dist/main
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRY
+        value: 30m
+      - key: JWT_REFRESH_EXPIRY
+        value: 30d
+      - key: CORS_ORIGIN
+        sync: false
+      - key: DEVICE_SIMULATOR
+        value: "false"
