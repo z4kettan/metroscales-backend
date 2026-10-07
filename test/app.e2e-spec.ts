@@ -4,7 +4,7 @@ import { Role } from '@prisma/client';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { AppModule } from '../src/app.module';
-import { configureApp } from '../src/main';
+import { configureApp } from '../src/app.setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 
 describe('Metro Scales API (e2e)', () => {
