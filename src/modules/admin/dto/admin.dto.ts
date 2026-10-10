@@ -1,13 +1,14 @@
 import { Type } from 'class-transformer';
 import {
-  IsBoolean, IsDateString, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateNested, IsInt, Min, Max,
+  IsBoolean, IsDateString, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateNested, IsInt, Min, Max,
 } from 'class-validator';
-import { PIN_PATTERN } from '../../auth/dto/auth.dto';
+import { PASSWORD_MESSAGE, PASSWORD_MIN, USERNAME_MESSAGE, USERNAME_PATTERN } from '../../auth/dto/auth.dto';
 
 export class OwnerDto {
   @IsString() @IsNotEmpty() @MaxLength(100) name: string;
-  @IsEmail() email: string;
-  @Matches(PIN_PATTERN, { message: 'PIN must be 4 to 8 digits' }) pin: string;
+  @Matches(USERNAME_PATTERN, { message: USERNAME_MESSAGE }) username: string;
+  @IsString() @MinLength(PASSWORD_MIN, { message: PASSWORD_MESSAGE }) @MaxLength(64) password: string;
+  @IsOptional() @IsEmail() email?: string;
 }
 
 export class CreateCustomerDto {

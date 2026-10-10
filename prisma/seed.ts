@@ -11,16 +11,17 @@ const prisma = new PrismaClient();
 const demo = process.argv.includes('--demo');
 
 async function main() {
-  const adminEmail = (process.env.SEED_ADMIN_EMAIL || 'admin@metroscales.local').toLowerCase();
+  const adminUsername = (process.env.SEED_ADMIN_USERNAME || 'admin').trim().toLowerCase();
+  const adminEmail = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase() || null;
   const adminPassword = process.env.SEED_ADMIN_PASSWORD || (demo ? 'admin12345' : '');
   if (!adminPassword) throw new Error('Set SEED_ADMIN_PASSWORD to create the dealer admin');
 
   await prisma.user.upsert({
-    where: { email: adminEmail },
-    create: { name: 'Dealer Admin', email: adminEmail, role: Role.DEALER_ADMIN, secretHash: await bcrypt.hash(adminPassword, 10) },
+    where: { username: adminUsername },
+    create: { name: 'Dealer Admin', username: adminUsername, email: adminEmail, role: Role.DEALER_ADMIN, secretHash: await bcrypt.hash(adminPassword, 10) },
     update: {},
   });
-  console.log(`Dealer admin: ${adminEmail}`);
+  console.log(`Dealer admin: ${adminUsername}`);
 
   if (!demo) return;
 
@@ -38,7 +39,7 @@ async function main() {
       subscriptionEndsAt: new Date(Date.now() + 10 * 86_400_000),
       users: {
         create: [
-          { name: 'admin', email: 'owner@demo.local', role: Role.OWNER, secretHash: await bcrypt.hash('1234', 10) },
+          { name: 'Demo Owner', username: 'demo', email: 'owner@demo.local', role: Role.OWNER, secretHash: await bcrypt.hash('demo1234', 10) },
         ],
       },
       branches: { create: [{ name: 'AYYAPPANKAVU' }, { name: 'KALOOR' }] },
@@ -52,8 +53,8 @@ async function main() {
 
   const staff = await prisma.user.create({
     data: {
-      name: 'Counter Staff', email: 'staff@demo.local', role: Role.STAFF, customerId: customer.id,
-      secretHash: await bcrypt.hash('1111', 10), branches: { create: [{ branchId: main.id }] },
+      name: 'Counter Staff', username: 'staff', role: Role.STAFF, customerId: customer.id,
+      secretHash: await bcrypt.hash('staff1234', 10), branches: { create: [{ branchId: main.id }] },
     },
   });
 
@@ -135,8 +136,8 @@ async function main() {
   }
 
   console.log('Demo shop created:');
-  console.log('  owner  owner@demo.local / PIN 1234');
-  console.log(`  staff  ${staff.email} / PIN 1111 (AYYAPPANKAVU only)`);
+  console.log('  owner  demo / demo1234');
+  console.log(`  staff  ${staff.username} / staff1234 (AYYAPPANKAVU only)`);
   console.log('  scales 0023F01A9740, 0023F01AD591 (assigned), 0023F01B0001 (unassigned)');
 }
 

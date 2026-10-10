@@ -16,11 +16,22 @@ npm run start:dev             # http://localhost:3000/api
 
 Demo logins after `db:seed`:
 
-| Who | Email | Password / PIN |
+| Who | Username | Password |
 |---|---|---|
-| Dealer admin | admin@metroscales.local | admin12345 |
-| Shop owner | owner@demo.local | 1234 |
-| Shop staff (one branch) | staff@demo.local | 1111 |
+| Dealer admin | admin | admin12345 |
+| Shop owner | demo | demo1234 |
+| Shop staff (one branch) | staff | staff1234 |
+
+## Deploy (Render)
+
+`render.yaml` is a Render Blueprint. In Render: New → Blueprint → pick this repo, then set:
+
+- `DATABASE_URL`: a PostgreSQL database (Render Postgres, or a free Neon database)
+- `CORS_ORIGIN`: the admin panel's URL, e.g. `https://metroscales-admin.vercel.app`
+
+Then create the dealer login once from the Render shell:
+`SEED_ADMIN_USERNAME=admin SEED_ADMIN_PASSWORD=<password> npm run db:seed:prod`.
+The admin panel's `src/environments/environment.prod.ts` must point at this service's URL.
 
 ## Tests
 
@@ -38,7 +49,7 @@ npm run test:e2e              # API tests against <db>_test
 | `OWNER` | Their own shop: all branches, items, prices, users, scale settings. |
 | `STAFF` | Only the branches assigned to them; can view items, update stock, add purchases, see reports. Cannot change prices, items or scale settings. |
 
-Shop users log in with email + numeric PIN; the dealer with email + password. Both go to `POST /api/auth/login` as `{ email, secret }`.
+Everyone logs in with username + password at `POST /api/auth/login` as `{ username, secret }`. An account with an email can also use the email in place of the username. The dealer creates each shop user's username and first password in the admin panel; owners can add staff in the app. Passwords are at least 6 characters (8 for the dealer).
 
 ## API overview
 
@@ -51,7 +62,7 @@ All responses are `{ success, data, message, meta }`. Money and quantities are p
 - `branches/:id/prices` (PUT bulk), `branches/:id/stock` (PUT bulk, `clear`, `movements`), `branches/:id/purchases`
 - `scales`: list/detail, PATCH parameters, `wifi`, `print-format`, `shortcuts`, `commands` (PUSH_ITEMS, PULL_ITEMS, CLEAR_PLU)
 - `reports`: `summary`, `daily`, `daily.csv`, `bills`, `items`, DELETE `bills`
-- `users`: shop owner manages staff and PINs
+- `users`: shop owner (or the dealer, with `customerId`) manages users, usernames and passwords
 
 ## Scale connection (not built yet)
 

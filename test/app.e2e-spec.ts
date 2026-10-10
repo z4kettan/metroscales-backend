@@ -13,8 +13,8 @@ describe('Metro Scales API (e2e)', () => {
   let http: ReturnType<typeof request>;
 
   const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
-  const login = async (email: string, secret: string) => {
-    const res = await http.post('/api/auth/login').send({ email, secret }).expect(200);
+  const login = async (username: string, secret: string) => {
+    const res = await http.post('/api/auth/login').send({ username, secret }).expect(200);
     return res.body.data.accessToken as string;
   };
 
@@ -41,29 +41,35 @@ describe('Metro Scales API (e2e)', () => {
     await prisma.scale.deleteMany();
     await prisma.user.deleteMany();
     await prisma.user.create({
-      data: { name: 'Dealer', email: 'dealer@test.local', role: Role.DEALER_ADMIN, secretHash: await bcrypt.hash('dealerpass', 4) },
+      data: { name: 'Dealer', username: 'dealer', email: 'dealer@test.local', role: Role.DEALER_ADMIN, secretHash: await bcrypt.hash('dealerpass', 4) },
     });
-    admin = await login('dealer@test.local', 'dealerpass');
+    admin = await login('dealer', 'dealerpass');
   });
 
   afterAll(async () => {
     await app.close();
   });
 
-  it('rejects a wrong PIN', async () => {
-    await http.post('/api/auth/login').send({ email: 'dealer@test.local', secret: 'nope' }).expect(401);
+  it('rejects a wrong password, and accepts the email in place of the username', async () => {
+    await http.post('/api/auth/login').send({ username: 'dealer', secret: 'nope' }).expect(401);
+    await login('Dealer@Test.local', 'dealerpass');
   });
 
   it('dealer creates a customer with an owner and a first branch', async () => {
     const res = await http
       .post('/api/admin/customers')
       .set(auth(admin))
-      .send({ name: 'Test Veg', owner: { name: 'Owner', email: 'Owner@Test.local', pin: '1234' }, branchName: 'MAIN' })
+      .send({ name: 'Test Veg', owner: { name: 'Owner', username: 'TestVeg', password: 'owner123' }, branchName: 'MAIN' })
       .expect(201);
     customerId = res.body.data.id;
     branchId = res.body.data.branches[0].id;
-    expect(res.body.data.users[0].email).toBe('owner@test.local');
-    owner = await login('owner@test.local', '1234');
+    expect(res.body.data.users[0].username).toBe('testveg');
+    owner = await login('testveg', 'owner123');
+    await http
+      .post('/api/admin/customers')
+      .set(auth(admin))
+      .send({ name: 'Dup', owner: { name: 'X', username: 'testveg', password: 'owner123' } })
+      .expect(409);
   });
 
   it('dealer registers a scale by MAC and assigns it to the branch', async () => {
@@ -139,16 +145,25 @@ describe('Metro Scales API (e2e)', () => {
   });
 
   it('owner adds staff limited to one branch', async () => {
-    await http
+    const created = await http
       .post('/api/users')
       .set(auth(owner))
-      .send({ name: 'Staff', email: 'staff@test.local', pin: '9999', role: 'STAFF', branchIds: [branchId] })
+      .send({ name: 'Staff', username: 'staff1', password: 'staff123', role: 'STAFF', branchIds: [branchId] })
       .expect(201);
-    staff = await login('staff@test.local', '9999');
+    staff = await login('staff1', 'staff123');
     const branches = await http.get('/api/branches').set(auth(staff)).expect(200);
     expect(branches.body.data.map((b: any) => b.id)).toEqual([branchId]);
     await http.get(`/api/reports/summary?branchId=${otherBranchId}`).set(auth(staff)).expect(403);
     await http.put(`/api/branches/${branchId}/prices`).set(auth(staff)).send({ prices: [{ itemId, price: 1 }] }).expect(403);
+
+    // The dealer resets the password from the admin panel
+    await http
+      .patch(`/api/users/${created.body.data.id}?customerId=${customerId}`)
+      .set(auth(admin))
+      .send({ password: 'newpass1' })
+      .expect(200);
+    await http.post('/api/auth/login').send({ username: 'staff1', secret: 'staff123' }).expect(401);
+    staff = await login('staff1', 'newpass1');
   });
 
   it('a scale goes online, uploads a bill once, and stock goes down', async () => {
@@ -217,6 +232,6 @@ describe('Metro Scales API (e2e)', () => {
   it('dealer deactivating a customer locks its users out', async () => {
     await http.patch(`/api/admin/customers/${customerId}`).set(auth(admin)).send({ isActive: false }).expect(200);
     await http.get('/api/auth/me').set(auth(owner)).expect(401);
-    await http.post('/api/auth/login').send({ email: 'owner@test.local', secret: '1234' }).expect(401);
+    await http.post('/api/auth/login').send({ username: 'testveg', secret: 'owner123' }).expect(401);
   });
 });
