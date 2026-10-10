@@ -16,11 +16,27 @@ npm run start:dev             # http://localhost:3000/api
 
 Demo logins after `db:seed`:
 
-| Who | Email | Password / PIN |
+| Who | Username | Password |
 |---|---|---|
-| Dealer admin | admin@metroscales.local | admin12345 |
-| Shop owner | owner@demo.local | 1234 |
-| Shop staff (one branch) | staff@demo.local | 1111 |
+| Dealer admin | admin | admin12345 |
+| Shop owner | demo | demo1234 |
+| Shop staff (one branch) | staff | staff1234 |
+
+## Deploy (Vercel)
+
+The API runs on Vercel as one serverless function (`api/index.js` → `src/serverless.ts`); `vercel.json` routes every `/api/*` request to it.
+
+1. Vercel → Add New → Project → import this repo. Leave the build settings alone; `vercel.json` sets them.
+2. In the project, Storage → Create Database → **Neon** (Postgres) and connect it. This adds `DATABASE_URL` (and `DATABASE_URL_UNPOOLED`, which migrations use).
+3. Settings → Environment Variables:
+   - `JWT_SECRET`: a long random string
+   - `CORS_ORIGIN`: the admin panel's URL, e.g. `https://metroscales-admin.vercel.app`
+   - `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD`: the dealer login, created on the next deploy if it doesn't exist yet
+4. Redeploy. Each deploy runs `scripts/vercel-build.js`: `prisma migrate deploy`, the dealer seed (when `SEED_ADMIN_PASSWORD` is set), then `nest build`.
+
+Check it with `https://<project>.vercel.app/api/health`. Keep `DEVICE_SIMULATOR` unset in production.
+
+Serverless functions only answer HTTP requests. If the scale traffic test shows the scales use plain TCP or UDP, that part (the scale gateway) needs a small always-on server next to this API.
 
 ## Tests
 
@@ -38,7 +54,7 @@ npm run test:e2e              # API tests against <db>_test
 | `OWNER` | Their own shop: all branches, items, prices, users, scale settings. |
 | `STAFF` | Only the branches assigned to them; can view items, update stock, add purchases, see reports. Cannot change prices, items or scale settings. |
 
-Shop users log in with email + numeric PIN; the dealer with email + password. Both go to `POST /api/auth/login` as `{ email, secret }`.
+Everyone logs in with username + password at `POST /api/auth/login` as `{ username, secret }`. An account with an email can also use the email in place of the username. The dealer creates each shop user's username and first password in the admin panel; owners can add staff in the app. Passwords are at least 6 characters (8 for the dealer).
 
 ## API overview
 
@@ -51,7 +67,7 @@ All responses are `{ success, data, message, meta }`. Money and quantities are p
 - `branches/:id/prices` (PUT bulk), `branches/:id/stock` (PUT bulk, `clear`, `movements`), `branches/:id/purchases`
 - `scales`: list/detail, PATCH parameters, `wifi`, `print-format`, `shortcuts`, `commands` (PUSH_ITEMS, PULL_ITEMS, CLEAR_PLU)
 - `reports`: `summary`, `daily`, `daily.csv`, `bills`, `items`, DELETE `bills`
-- `users`: shop owner manages staff and PINs
+- `users`: shop owner (or the dealer, with `customerId`) manages users, usernames and passwords
 
 ## Scale connection (not built yet)
 
@@ -69,7 +85,3 @@ curl -X POST localhost:3000/api/device-sim/0023F01A9740/bills -H 'content-type: 
 ```
 
 A scale counts as online if it was heard from in the last 2 minutes.
-
-## Deploy
-
-`render.yaml` deploys to Render like the Tesseract backend. Set `DATABASE_URL` and `CORS_ORIGIN`, then create the dealer admin once with `SEED_ADMIN_EMAIL=... SEED_ADMIN_PASSWORD=... npm run db:seed:prod`.

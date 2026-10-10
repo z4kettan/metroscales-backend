@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { normalizeUsername } from '../auth/dto/auth.dto';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
@@ -76,7 +77,7 @@ export class AdminService {
         branches: { orderBy: { name: 'asc' } },
         users: {
           orderBy: { name: 'asc' },
-          select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true },
+          select: { id: true, name: true, username: true, email: true, role: true, isActive: true, createdAt: true },
         },
         _count: { select: { items: true, categories: true } },
       },
@@ -87,11 +88,12 @@ export class AdminService {
   }
 
   async createCustomer(dto: CreateCustomerDto) {
-    const email = dto.owner.email.toLowerCase().trim();
-    if (await this.prisma.user.findUnique({ where: { email } })) {
-      throw new BadRequestException('A user with this email already exists');
+    const username = normalizeUsername(dto.owner.username);
+    if (await this.prisma.user.findUnique({ where: { username } })) {
+      throw new ConflictException(`The username "${username}" is already taken`);
     }
-    const secretHash = await AuthService.hashSecret(dto.owner.pin);
+    const email = dto.owner.email?.toLowerCase().trim() || null;
+    const secretHash = await AuthService.hashSecret(dto.owner.password);
     const customer = await this.prisma.customer.create({
       data: {
         name: dto.name.trim(),
@@ -102,7 +104,7 @@ export class AdminService {
         notes: dto.notes,
         subscriptionEndsAt: dto.subscriptionEndsAt ? new Date(dto.subscriptionEndsAt) : null,
         branches: { create: { name: (dto.branchName || dto.name).trim() } },
-        users: { create: { name: dto.owner.name.trim(), email, secretHash, role: Role.OWNER } },
+        users: { create: { name: dto.owner.name.trim(), username, email, secretHash, role: Role.OWNER } },
       },
     });
     return this.getCustomer(customer.id);

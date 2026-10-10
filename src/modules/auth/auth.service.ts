@@ -6,7 +6,7 @@ import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
-import { ChangeSecretDto, LoginDto, PIN_PATTERN, UpdateProfileDto } from './dto/auth.dto';
+import { ChangeSecretDto, LoginDto, normalizeUsername, UpdateProfileDto } from './dto/auth.dto';
 
 @Injectable()
 export class AuthService {
@@ -21,15 +21,16 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase().trim() },
+    const login = normalizeUsername(dto.username);
+    const user = await this.prisma.user.findFirst({
+      where: { OR: [{ username: login }, { email: login }] },
       include: { customer: true },
     });
     if (!user || !user.isActive || (user.customer && !user.customer.isActive)) {
-      throw new UnauthorizedException('Invalid email or PIN');
+      throw new UnauthorizedException('Wrong username or password');
     }
     if (!(await bcrypt.compare(dto.secret, user.secretHash))) {
-      throw new UnauthorizedException('Invalid email or PIN');
+      throw new UnauthorizedException('Wrong username or password');
     }
     return { user: await this.profile(user.id), ...(await this.issueTokens(user.id, user.role)) };
   }
@@ -63,6 +64,7 @@ export class AuthService {
     return {
       id: user.id,
       name: user.name,
+      username: user.username,
       email: user.email,
       role: user.role,
       customer: user.customer,
@@ -73,7 +75,7 @@ export class AuthService {
   async updateProfile(user: AuthUser, dto: UpdateProfileDto) {
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { name: dto.name, email: dto.email?.toLowerCase().trim() },
+      data: { name: dto.name?.trim(), email: dto.email?.toLowerCase().trim() },
     });
     return this.profile(user.id);
   }
@@ -81,10 +83,7 @@ export class AuthService {
   async changeSecret(user: AuthUser, dto: ChangeSecretDto) {
     const row = await this.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     if (!(await bcrypt.compare(dto.currentSecret, row.secretHash))) {
-      throw new BadRequestException('Current PIN is wrong');
-    }
-    if (row.role !== Role.DEALER_ADMIN && !PIN_PATTERN.test(dto.newSecret)) {
-      throw new BadRequestException('PIN must be 4 to 8 digits');
+      throw new BadRequestException('Current password is wrong');
     }
     if (row.role === Role.DEALER_ADMIN && dto.newSecret.length < 8) {
       throw new BadRequestException('Password must be at least 8 characters');
