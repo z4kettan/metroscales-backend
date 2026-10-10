@@ -19,7 +19,8 @@
     "db:seed:prod": "prisma db seed",
     "db:studio": "npx prisma studio",
     "db:reset": "npx prisma migrate reset",
-    "test:e2e:db": "ts-node test/reset-db.ts"
+    "test:e2e:db": "ts-node test/reset-db.ts",
+    "postinstall": "prisma generate"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

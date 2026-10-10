@@ -22,16 +22,21 @@ Demo logins after `db:seed`:
 | Shop owner | demo | demo1234 |
 | Shop staff (one branch) | staff | staff1234 |
 
-## Deploy (Render)
+## Deploy (Vercel)
 
-`render.yaml` is a Render Blueprint. In Render: New → Blueprint → pick this repo, then set:
+The API runs on Vercel as one serverless function (`api/index.js` → `src/serverless.ts`); `vercel.json` routes every `/api/*` request to it.
 
-- `DATABASE_URL`: a PostgreSQL database (Render Postgres, or a free Neon database)
-- `CORS_ORIGIN`: the admin panel's URL, e.g. `https://metroscales-admin.vercel.app`
+1. Vercel → Add New → Project → import this repo. Leave the build settings alone; `vercel.json` sets them.
+2. In the project, Storage → Create Database → **Neon** (Postgres) and connect it. This adds `DATABASE_URL` (and `DATABASE_URL_UNPOOLED`, which migrations use).
+3. Settings → Environment Variables:
+   - `JWT_SECRET`: a long random string
+   - `CORS_ORIGIN`: the admin panel's URL, e.g. `https://metroscales-admin.vercel.app`
+   - `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD`: the dealer login, created on the next deploy if it doesn't exist yet
+4. Redeploy. Each deploy runs `scripts/vercel-build.js`: `prisma migrate deploy`, the dealer seed (when `SEED_ADMIN_PASSWORD` is set), then `nest build`.
 
-Then create the dealer login once from the Render shell:
-`SEED_ADMIN_USERNAME=admin SEED_ADMIN_PASSWORD=<password> npm run db:seed:prod`.
-The admin panel's `src/environments/environment.prod.ts` must point at this service's URL.
+Check it with `https://<project>.vercel.app/api/health`. Keep `DEVICE_SIMULATOR` unset in production.
+
+Serverless functions only answer HTTP requests. If the scale traffic test shows the scales use plain TCP or UDP, that part (the scale gateway) needs a small always-on server next to this API.
 
 ## Tests
 
@@ -80,7 +85,3 @@ curl -X POST localhost:3000/api/device-sim/0023F01A9740/bills -H 'content-type: 
 ```
 
 A scale counts as online if it was heard from in the last 2 minutes.
-
-## Deploy
-
-`render.yaml` deploys to Render like the Tesseract backend. Set `DATABASE_URL` and `CORS_ORIGIN`, then create the dealer admin once with `SEED_ADMIN_EMAIL=... SEED_ADMIN_PASSWORD=... npm run db:seed:prod`.
