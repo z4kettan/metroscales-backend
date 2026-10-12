@@ -72,6 +72,6 @@ A scale counts as online if it was heard from in the last 2 minutes.
 
 ## Deploy
 
-Production runs on Vercel (project `metroscales-backend`, https://metroscales-backend.vercel.app) with a Neon Postgres database (`metroscales-db`, Singapore) connected through the Vercel Marketplace, which sets `DATABASE_URL` and `DATABASE_URL_UNPOOLED`. `vercel.json` runs `prisma migrate deploy` on every build. Deploy with `vercel deploy --prod`. Create the dealer admin once with `SEED_ADMIN_EMAIL=... SEED_ADMIN_PASSWORD=... npm run db:seed:prod` against the unpooled URL.
+Production runs on Vercel (project `metroscales-backend`, https://metroscales-backend.vercel.app) with a Neon Postgres database (`metroscales-db`, Singapore) connected through the Vercel Marketplace, which sets `DATABASE_URL` and `DATABASE_URL_UNPOOLED`. `vercel.json` runs `prisma migrate deploy` on every build. A push to `main` on GitHub deploys it; `vercel deploy --prod` deploys from a local folder. Create the dealer admin once with `SEED_ADMIN_EMAIL=... SEED_ADMIN_PASSWORD=... npm run db:seed:prod` against the unpooled URL.
 
 Vercel only serves HTTP requests. If the scale protocol turns out to need a long-lived TCP or MQTT connection, run the gateway on a server that stays up; `render.yaml` deploys the whole backend to Render.
